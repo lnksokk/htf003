@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block head %}
+<title>Patient Dashboard - Early-Warning System</title>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1>Patient Dashboard</h1>
+        <p class="text-muted">Monitoring vital signs in real-time</p>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-success me-2">
+            <span id="active-patients">{{ patients|length }}</span> Patients Monitored
+        </span>
+        <span class="badge bg-danger">
+            <span id="at-risk-patients">{{ patients|selectattr('current_risk', 'equalto', true)|list|length }}</span> At Risk
+        </span>
+    </div>
+</div>
+
+<div class="row">
+    {% for patient in patients %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            {% include '_patient_card.html' %}
+        </div>
+    {% endfor %}
+</div>
+
+<div class="row mt-3 mb-5">
+    <div class="col text-center">
+        <a href="/refresh-data" class="btn btn-primary">Generate New Vitals</a>
+        <div class="mt-2">
+            <p class="text-muted small" id="last-update">Last updated: {{ now|datetime }}</p>
+            <p class="text-muted small">Updates automatically in real-time</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Function to update patients with new vital signs
+    function updatePatientCards(patientIds) {
+        // Show visual indicator that updates are happening
+        document.querySelectorAll('.patient-card').forEach(card => {
+            card.style.transition = 'box-shadow 0.5s';
+            card.style.boxShadow = '0 0 10px rgba(0, 151, 167, 0.5)';
+            setTimeout(() => {
+                card.style.boxShadow = '';
+            }, 1000);
+        });
+        
+        // Update each patient card
+        patientIds.forEach(patientId => {
+            const url = `/status/${patientId}`;
+            const patientCard = document.getElementById(`patient-${patientId}`);
+            
+            if (patientCard) {
+                fetch(url)
+                    .then(response => response.text())
+                    .then(html => {
+                        const parentCol = patientCard.closest('.col-md-6');
+                        if (parentCol) {
+                            parentCol.innerHTML = html;
+                        }
+                    });
+            }
+        });
+        
+        // Update the "at risk" count
+        fetch('/status')
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const atRiskCount = doc.getElementById('at-risk-patients').textContent;
+                document.getElementById('at-risk-patients').textContent = atRiskCount;
+            });
+            
+        // Update the last updated time
+        document.getElementById('last-update').textContent = `Last updated: ${new Date().toLocaleString()}`;
+    }
+
+    // Function to generate new vital signs from the API
+    function generateNewVitals() {
+        // Display "Updating..." message
+        document.getElementById('last-update').textContent = 'Updating vital signs...';
+        
+        fetch('/api/generate-vitals')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.updates.length > 0) {
+                    // Update the patient cards with the new data
+                    updatePatientCards(data.updates);
+                }
+            })
+            .catch(error => {
+                console.error('Error generating vitals:', error);
+                document.getElementById('last-update').textContent = 'Error updating vital signs. Will retry.';
+            });
+    }
+
+    // Generate new vitals periodically
+    const updateInterval = 15000;
+    setInterval(generateNewVitals, updateInterval);
+    
+    // Initial generation after page load
+    setTimeout(generateNewVitals, 1000);
+</script>
+{% endblock %} 
