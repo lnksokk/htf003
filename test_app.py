@@ -1,18 +1,20 @@
 import pytest
 import json
-from app import app, THRESHOLDS
-from db import db
-from models import Patient, VitalSign, Alert
+from app import app, THRESHOLDS, db, create_sample_data
+from models import Patient, VitalSign, Alert, User
+from flask_login import current_user
 
 @pytest.fixture
 def client():
     """Create a test client for the Flask app."""
     app.config['TESTING'] = True
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    app.config['WTF_CSRF_ENABLED'] = False
     
     with app.test_client() as client:
         with app.app_context():
             db.create_all()
+            create_sample_data()  # Create sample users and patients
             # Create a test patient
             test_patient = Patient(
                 id=1,
@@ -185,4 +187,73 @@ def test_multiple_abnormal_vitals(client):
         
         # Verify patient is at risk
         patient = Patient.query.get(1)
-        assert patient.current_risk is True 
+        assert patient.current_risk is True
+
+def test_login_success(client):
+    """Test successful login."""
+    response = client.post('/login', data={
+        'username': 'doctor',
+        'password': 'doctorpassword'
+    }, follow_redirects=True)
+    
+    assert response.status_code == 200
+    assert b'Patient Monitoring' in response.data
+
+def test_login_failure(client):
+    """Test failed login with wrong password."""
+    response = client.post('/login', data={
+        'username': 'doctor',
+        'password': 'wrongpassword'
+    }, follow_redirects=True)
+    
+    assert response.status_code == 200
+    assert b'Invalid username or password' in response.data
+
+def test_patients_listing(client):
+    """Test patients listing page."""
+    # Login first
+    client.post('/login', data={'username': 'doctor', 'password': 'doctorpassword'})
+    
+    # Access the patients page
+    response = client.get('/patients')
+    
+    assert response.status_code == 200
+    assert b'Patient Monitoring' in response.data
+    assert b'John Smith' in response.data
+    assert b'Heart Rate' in response.data
+    assert b'SpO' in response.data
+    assert b'Temperature' in response.data
+
+def test_alert_highlighting(client):
+    """Test alert highlighting and acknowledgment."""
+    # Login
+    client.post('/login', data={'username': 'doctor', 'password': 'doctorpassword'})
+    
+    # Create a patient with an alert
+    with app.app_context():
+        patient = Patient.query.first()
+        patient.heart_rate = 120  # Abnormal heart rate
+        patient.heart_rate_alert = True
+        db.session.commit()
+        
+    # Check if the alert is shown
+    response = client.get('/patients')
+    assert b'vital-warning' in response.data
+    assert b'Alert' in response.data
+    
+    # Acknowledge the alert
+    client.post(f'/acknowledge/{patient.id}/heart_rate')
+    
+    # Verify the alert was acknowledged
+    with app.app_context():
+        patient = Patient.query.first()
+        assert not patient.heart_rate_alert
+
+def test_access_control(client):
+    """Test that unauthorized users can't access patients page."""
+    # Without login
+    response = client.get('/patients', follow_redirects=True)
+    
+    # Should redirect to login page
+    assert b'Login' in response.data
+    assert b'Username' in response.data 

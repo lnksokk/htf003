@@ -1,0 +1,38 @@
+{% for patient in patients %}
+    <tr class="{% if patient.has_alert %}at-risk{% endif %}">
+        <td>{{ patient.name }}</td>
+        <td>{{ patient.room }}</td>
+        <td class="{% if patient.heart_rate_alert %}vital-warning{% else %}vital-normal{% endif %}">
+            {{ patient.heart_rate|int }} bpm
+            {% if patient.heart_rate_alert %}
+                <form method="POST" action="{{ url_for('acknowledge_alert', patient_id=patient.id, vital_type='heart_rate') }}" class="d-inline">
+                    <button type="submit" class="btn btn-sm btn-link p-0 alert-badge">⚠️</button>
+                </form>
+            {% endif %}
+        </td>
+        <td class="{% if patient.spo2_alert %}vital-warning{% else %}vital-normal{% endif %}">
+            {{ patient.spo2|round(1) }}%
+            {% if patient.spo2_alert %}
+                <form method="POST" action="{{ url_for('acknowledge_alert', patient_id=patient.id, vital_type='spo2') }}" class="d-inline">
+                    <button type="submit" class="btn btn-sm btn-link p-0 alert-badge">⚠️</button>
+                </form>
+            {% endif %}
+        </td>
+        <td class="{% if patient.temp_alert %}vital-warning{% else %}vital-normal{% endif %}">
+            {{ patient.temp|round(1) }}°C
+            {% if patient.temp_alert %}
+                <form method="POST" action="{{ url_for('acknowledge_alert', patient_id=patient.id, vital_type='temp') }}" class="d-inline">
+                    <button type="submit" class="btn btn-sm btn-link p-0 alert-badge">⚠️</button>
+                </form>
+            {% endif %}
+        </td>
+        <td>{{ patient.vitals_updated|datetime('%H:%M:%S') }}</td>
+        <td>
+            {% if patient.has_alert %}
+                <span class="badge bg-danger">Alert</span>
+            {% else %}
+                <span class="badge bg-success">Normal</span>
+            {% endif %}
+        </td>
+    </tr>
+{% endfor %} 
