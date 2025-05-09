@@ -7,41 +7,72 @@ A simple web-based monitoring system for patient vital signs that alerts healthc
 - **Basic Patient Monitoring**: Display patients with their latest vital signs
 - **Real-time Updates**: Automatically refreshes vital signs data
 - **Login System**: Authentication for doctors and nurses
-- **Alerts System**: Tracks abnormal vital signs and allows acknowledgment
+- **Tiered Alert System**: Tracks abnormal vital signs with warning and critical levels
+- **Email Notifications**: Sends emails for critical alerts to doctors and patients
+- **Alert Management**: Allows acknowledgment and tracking of notifications
 
 ## Quick Start
 
 1. Install dependencies:
    ```
-   pip install flask flask-sqlalchemy
+   pip install -r requirements.txt
    ```
 
-2. Run the application:
+2. Run the database migration:
+   ```
+   python migrate_db.py
+   ```
+
+3. Run the application:
    ```
    python app.py
    ```
 
-3. Open in browser:
+4. Open in browser:
    ```
    http://localhost:5001/
    ```
 
-4. Login with:
+5. Login with:
    - Username: `doctor` / Password: `doctorpassword`
    - Username: `nurse` / Password: `nursepassword`
 
 ## Vital Sign Thresholds
 
+### Warning Thresholds
 - **Heart Rate**: 60-100 bpm
 - **SpO₂**: ≥ 95%
 - **Temperature**: 36.5-37.5°C
+
+### Critical Thresholds
+- **Heart Rate**: 50-120 bpm (values outside this range trigger critical alerts)
+- **SpO₂**: ≥ 90% (values below 90% trigger critical alerts)
+- **Temperature**: 35.5-38.5°C (values outside this range trigger critical alerts)
+
+## Email Notifications
+
+The system sends email notifications for critical alerts to:
+- The patient's primary doctor (if assigned)
+- The patient (for critical alerts only, if email is provided)
+
+To configure email sending:
+1. Set the following environment variables:
+   ```
+   SMTP_SERVER=smtp.example.com
+   SMTP_PORT=587
+   SMTP_USERNAME=your_username
+   SMTP_PASSWORD=your_password
+   SENDER_EMAIL=hospital@example.com
+   ```
 
 ## Project Structure
 
 - `app.py`: Main application file
 - `models.py`: Database models
 - `db.py`: Database configuration
+- `utils/`: Utility files for notifications and other functions
 - `templates/`: HTML templates
+- `migrate_db.py`: Database migration script
 
 ## Tech Stack
 
@@ -70,17 +101,22 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Create sample data:
+4. Run database migration:
+```
+python migrate_db.py
+```
+
+5. Create sample data:
 ```
 python sample_data.py
 ```
 
-5. Run the application:
+6. Run the application:
 ```
 python app.py
 ```
 
-6. Open your browser and navigate to `http://localhost:5000`
+7. Open your browser and navigate to `http://localhost:5000`
 
 ## API Endpoints
 
@@ -102,12 +138,6 @@ To send vital signs data to the system, use the following JSON format:
   "temp": 37.0
 }
 ```
-
-## Normal Vital Ranges
-
-- Heart Rate: 60-100 bpm
-- SpO₂: ≥ 95%
-- Temperature: 36.5-37.5°C
 
 ## Running Tests
 
@@ -146,6 +176,7 @@ The project is configured with a `vercel.json` file that sets up the Flask appli
 ### Important Notes for Vercel Deployment
 
 - SQLite database is not suitable for production on Vercel's serverless environment. For production use, consider using a database service like PostgreSQL or MySQL.
+- For email notifications in production, configure proper SMTP settings in your environment variables.
 - The Vercel deployment uses a serverless approach, which means there are cold starts and limitations on long-running processes.
 
 ## Development
@@ -156,9 +187,11 @@ The codebase is organized as follows:
 - `api/index.py` - Entry point for Vercel serverless deployment
 - `models.py` - SQLAlchemy data models
 - `templates/` - Jinja2 HTML templates
+- `utils/` - Utility functions for notifications and other features
 - `test_app.py` - Pytest test suite
 - `sample_data.py` - Script to generate sample data
 - `vercel.json` - Configuration for Vercel deployment
+- `migrate_db.py` - Database migration script
 
 ## License
 

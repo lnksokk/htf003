@@ -16,6 +16,7 @@ db = SQLAlchemy(app)
 
 # Import models after db is defined to avoid circular imports
 from models import Patient, VitalSign, Alert
+from utils.notifications import send_critical_alert_notification
 
 # Custom Jinja2 filters
 @app.template_filter('datetime')
@@ -25,11 +26,20 @@ def format_datetime(value, format='%Y-%m-%d %H:%M:%S'):
         return ""
     return value.strftime(format)
 
-# Define vital sign thresholds
+# Define vital sign thresholds with warning and critical levels
 THRESHOLDS = {
-    'heart_rate': {'min': 60, 'max': 100},
-    'spo2': {'min': 95, 'max': 100},
-    'temp': {'min': 36.5, 'max': 37.5}
+    'heart_rate': {
+        'warning': {'min': 60, 'max': 100},
+        'critical': {'min': 50, 'max': 120}
+    },
+    'spo2': {
+        'warning': {'min': 95, 'max': 100},
+        'critical': {'min': 90, 'max': 100}
+    },
+    'temp': {
+        'warning': {'min': 36.5, 'max': 37.5},
+        'critical': {'min': 35.5, 'max': 38.5}
+    }
 }
 
 @app.route('/status')
@@ -69,36 +79,91 @@ def update_vitals():
     alerts = []
     patient = Patient.query.get(patient_id)
     patient_at_risk = False
+    has_critical_alert = False
     
-    if heart_rate and (heart_rate < THRESHOLDS['heart_rate']['min'] or heart_rate > THRESHOLDS['heart_rate']['max']):
-        alerts.append(Alert(
-            patient_id=patient_id,
-            vital_type='heart_rate',
-            value=heart_rate,
-            threshold=f"{THRESHOLDS['heart_rate']['min']}-{THRESHOLDS['heart_rate']['max']}",
-            timestamp=datetime.now()
-        ))
-        patient_at_risk = True
+    # Check heart rate
+    if heart_rate:
+        severity = 'normal'
+        threshold_str = ""
+        
+        # Check critical threshold first
+        if heart_rate < THRESHOLDS['heart_rate']['critical']['min'] or heart_rate > THRESHOLDS['heart_rate']['critical']['max']:
+            severity = 'critical'
+            threshold_str = f"{THRESHOLDS['heart_rate']['critical']['min']}-{THRESHOLDS['heart_rate']['critical']['max']}"
+            patient_at_risk = True
+            has_critical_alert = True
+        # Then check warning threshold
+        elif heart_rate < THRESHOLDS['heart_rate']['warning']['min'] or heart_rate > THRESHOLDS['heart_rate']['warning']['max']:
+            severity = 'warning'
+            threshold_str = f"{THRESHOLDS['heart_rate']['warning']['min']}-{THRESHOLDS['heart_rate']['warning']['max']}"
+            patient_at_risk = True
+        
+        # Create alert if not normal
+        if severity != 'normal':
+            alerts.append(Alert(
+                patient_id=patient_id,
+                vital_type='heart_rate',
+                value=heart_rate,
+                threshold=threshold_str,
+                severity=severity,
+                timestamp=datetime.now()
+            ))
     
-    if spo2 and spo2 < THRESHOLDS['spo2']['min']:
-        alerts.append(Alert(
-            patient_id=patient_id,
-            vital_type='spo2',
-            value=spo2,
-            threshold=f">= {THRESHOLDS['spo2']['min']}",
-            timestamp=datetime.now()
-        ))
-        patient_at_risk = True
+    # Check SpO2
+    if spo2:
+        severity = 'normal'
+        threshold_str = ""
+        
+        # Check critical threshold first
+        if spo2 < THRESHOLDS['spo2']['critical']['min']:
+            severity = 'critical'
+            threshold_str = f">= {THRESHOLDS['spo2']['critical']['min']}"
+            patient_at_risk = True
+            has_critical_alert = True
+        # Then check warning threshold
+        elif spo2 < THRESHOLDS['spo2']['warning']['min']:
+            severity = 'warning'
+            threshold_str = f">= {THRESHOLDS['spo2']['warning']['min']}"
+            patient_at_risk = True
+        
+        # Create alert if not normal
+        if severity != 'normal':
+            alerts.append(Alert(
+                patient_id=patient_id,
+                vital_type='spo2',
+                value=spo2,
+                threshold=threshold_str,
+                severity=severity,
+                timestamp=datetime.now()
+            ))
     
-    if temp and (temp < THRESHOLDS['temp']['min'] or temp > THRESHOLDS['temp']['max']):
-        alerts.append(Alert(
-            patient_id=patient_id,
-            vital_type='temp',
-            value=temp,
-            threshold=f"{THRESHOLDS['temp']['min']}-{THRESHOLDS['temp']['max']}",
-            timestamp=datetime.now()
-        ))
-        patient_at_risk = True
+    # Check temperature
+    if temp:
+        severity = 'normal'
+        threshold_str = ""
+        
+        # Check critical threshold first
+        if temp < THRESHOLDS['temp']['critical']['min'] or temp > THRESHOLDS['temp']['critical']['max']:
+            severity = 'critical'
+            threshold_str = f"{THRESHOLDS['temp']['critical']['min']}-{THRESHOLDS['temp']['critical']['max']}"
+            patient_at_risk = True
+            has_critical_alert = True
+        # Then check warning threshold
+        elif temp < THRESHOLDS['temp']['warning']['min'] or temp > THRESHOLDS['temp']['warning']['max']:
+            severity = 'warning'
+            threshold_str = f"{THRESHOLDS['temp']['warning']['min']}-{THRESHOLDS['temp']['warning']['max']}"
+            patient_at_risk = True
+        
+        # Create alert if not normal
+        if severity != 'normal':
+            alerts.append(Alert(
+                patient_id=patient_id,
+                vital_type='temp',
+                value=temp,
+                threshold=threshold_str,
+                severity=severity,
+                timestamp=datetime.now()
+            ))
     
     # Update patient risk status
     patient.current_risk = patient_at_risk
@@ -108,6 +173,15 @@ def update_vitals():
         db.session.add(alert)
     
     db.session.commit()
+    
+    # Send notifications for critical alerts
+    if has_critical_alert:
+        for alert in alerts:
+            if alert.severity == 'critical':
+                send_critical_alert_notification(patient, alert)
+                # Mark as notified
+                alert.notified = True
+        db.session.commit()
     
     # Return the updated patient card HTML fragment
     return render_template('_patient_card.html', patient=patient, vitals=vital)

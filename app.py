@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import random
 from db import db
@@ -19,7 +19,8 @@ login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    # Use session.get instead of query.get to address SQLAlchemy deprecation warning
+    return db.session.get(User, int(user_id))
 
 # Custom Jinja2 filters
 @app.template_filter('datetime')
@@ -48,54 +49,18 @@ def patients():
     all_patients = Patient.query.all()
     current_time = datetime.now()
     
-    # For demo purposes, generate new vitals on each page load
-    for patient in all_patients:
-        # 30% chance of abnormal vitals
-        if random.random() < 0.3:
-            # Choose which vital to make abnormal
-            risk_type = random.choice(['heart_rate', 'spo2', 'temp'])
-            
-            if risk_type == 'heart_rate':
-                # Either too high or too low heart rate
-                patient.heart_rate = random.choice([
-                    random.randint(40, 59),  # Too low
-                    random.randint(101, 140)  # Too high
-                ])
-                patient.heart_rate_alert = True
-            else:
-                patient.heart_rate = random.randint(60, 100)
-                patient.heart_rate_alert = False
-                
-            if risk_type == 'spo2':
-                patient.spo2 = round(random.uniform(85, 94), 1)
-                patient.spo2_alert = True
-            else:
-                patient.spo2 = round(random.uniform(95, 100), 1)
-                patient.spo2_alert = False
-                
-            if risk_type == 'temp':
-                patient.temp = round(random.choice([
-                    random.uniform(35, 36.4),  # Too low
-                    random.uniform(37.6, 39)   # Too high
-                ]), 1)
-                patient.temp_alert = True
-            else:
-                patient.temp = round(random.uniform(36.5, 37.5), 1)
-                patient.temp_alert = False
-        else:
-            # Normal vitals
-            patient.heart_rate = random.randint(60, 100)
-            patient.spo2 = round(random.uniform(95, 100), 1)
-            patient.temp = round(random.uniform(36.5, 37.5), 1)
-            
-            patient.heart_rate_alert = False
-            patient.spo2_alert = False
-            patient.temp_alert = False
-            
-        patient.vitals_updated = current_time
-        db.session.add(patient)
+    # Only generate new vitals if it's been more than 10 seconds since the last update
+    # or if there's an explicit request parameter to generate new vitals
+    should_update = request.args.get('generate') == 'true'
     
-    db.session.commit()
+    for patient in all_patients:
+        if not patient.vitals_updated or should_update or \
+           (current_time - patient.vitals_updated) > timedelta(seconds=10):
+            generate_vitals_for_patient(patient, current_time)
+            db.session.add(patient)
+    
+    if should_update or any(not p.vitals_updated for p in all_patients):
+        db.session.commit()
     
     # Check if this is an HTMX request
     if request.headers.get('HX-Request'):
@@ -105,11 +70,60 @@ def patients():
     # Return the full page for normal requests
     return render_template('patients.html', patients=all_patients, now=current_time)
 
+def generate_vitals_for_patient(patient, timestamp):
+    """Generate vital signs for a patient."""
+    # 30% chance of abnormal vitals
+    if random.random() < 0.3:
+        # Choose which vital to make abnormal
+        risk_type = random.choice(['heart_rate', 'spo2', 'temp'])
+        
+        if risk_type == 'heart_rate':
+            # Either too high or too low heart rate
+            patient.heart_rate = random.choice([
+                random.randint(40, 59),  # Too low
+                random.randint(101, 140)  # Too high
+            ])
+            patient.heart_rate_alert = True
+        else:
+            patient.heart_rate = random.randint(60, 100)
+            patient.heart_rate_alert = False
+            
+        if risk_type == 'spo2':
+            patient.spo2 = round(random.uniform(85, 94), 1)
+            patient.spo2_alert = True
+        else:
+            patient.spo2 = round(random.uniform(95, 100), 1)
+            patient.spo2_alert = False
+            
+        if risk_type == 'temp':
+            patient.temp = round(random.choice([
+                random.uniform(35, 36.4),  # Too low
+                random.uniform(37.6, 39)   # Too high
+            ]), 1)
+            patient.temp_alert = True
+        else:
+            patient.temp = round(random.uniform(36.5, 37.5), 1)
+            patient.temp_alert = False
+    else:
+        # Normal vitals
+        patient.heart_rate = random.randint(60, 100)
+        patient.spo2 = round(random.uniform(95, 100), 1)
+        patient.temp = round(random.uniform(36.5, 37.5), 1)
+        
+        patient.heart_rate_alert = False
+        patient.spo2_alert = False
+        patient.temp_alert = False
+        
+    patient.vitals_updated = timestamp
+
 @app.route('/acknowledge/<int:patient_id>/<string:vital_type>', methods=['POST'])
 @login_required
 def acknowledge_alert(patient_id, vital_type):
     """Acknowledge a vital sign alert."""
-    patient = Patient.query.get_or_404(patient_id)
+    patient = db.session.get(Patient, patient_id)
+    if not patient:
+        flash('Patient not found', 'danger')
+        return redirect(url_for('patients'))
     
     if vital_type == 'heart_rate':
         patient.heart_rate_alert = False
@@ -153,7 +167,7 @@ def logout():
 def create_sample_data():
     """Create sample patients and users."""
     # Create users if they don't exist
-    if User.query.filter_by(username='doctor').first() is None:
+    if not db.session.query(User).filter_by(username='doctor').first():
         doctor = User(
             username='doctor',
             password_hash=generate_password_hash('doctorpassword'),
@@ -161,7 +175,7 @@ def create_sample_data():
         )
         db.session.add(doctor)
     
-    if User.query.filter_by(username='nurse').first() is None:
+    if not db.session.query(User).filter_by(username='nurse').first():
         nurse = User(
             username='nurse',
             password_hash=generate_password_hash('nursepassword'),
@@ -170,7 +184,7 @@ def create_sample_data():
         db.session.add(nurse)
     
     # Create patients if they don't exist
-    if Patient.query.count() == 0:
+    if db.session.query(Patient).count() == 0:
         patients = [
             Patient(name="John Smith", room="101"),
             Patient(name="Sarah Johnson", room="102"),
@@ -180,7 +194,10 @@ def create_sample_data():
             Patient(name="Olivia Miller", room="106")
         ]
         
+        # Initialize vital signs for each patient
+        current_time = datetime.now()
         for patient in patients:
+            generate_vitals_for_patient(patient, current_time)
             db.session.add(patient)
     
     db.session.commit()

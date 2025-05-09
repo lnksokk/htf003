@@ -1,9 +1,9 @@
-<div class="card patient-card {% if patient.current_risk %}at-risk{% endif %}" id="patient-{{ patient.id }}">
+<div class="card patient-card {% if patient.has_alert %}at-risk{% endif %}" id="patient-{{ patient.id }}">
     
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">{{ patient.name }}</h5>
-        <span class="badge {% if patient.current_risk %}bg-danger{% else %}bg-success{% endif %}">
-            {% if patient.current_risk %}At Risk{% else %}Stable{% endif %}
+        <span class="badge {% if patient.has_alert %}bg-danger{% else %}bg-success{% endif %}">
+            {% if patient.has_alert %}Alert{% else %}Stable{% endif %}
         </span>
     </div>
     
@@ -15,34 +15,33 @@
             </div>
         </div>
         
-        {% if patient.latest_vitals %}
-            <h6 class="border-bottom pb-2 mb-3">Latest Vitals <small class="text-muted">({{ patient.latest_vitals.timestamp|datetime('%H:%M') }})</small></h6>
+        {% if patient.vitals_updated %}
+            <h6 class="border-bottom pb-2 mb-3">Vital Signs</h6>
             
             <div class="row">
                 <div class="col-4">
                     <small class="text-muted">Heart Rate</small>
-                    <p class="mb-0 {% if patient.latest_vitals.heart_rate and (patient.latest_vitals.heart_rate < 60 or patient.latest_vitals.heart_rate > 100) %}vital-warning{% else %}vital-normal{% endif %}">
-                        {% if patient.latest_vitals.heart_rate %}{{ patient.latest_vitals.heart_rate|int }} bpm{% else %}--{% endif %}
+                    <p class="mb-0 {% if patient.heart_rate_alert %}vital-warning{% else %}vital-normal{% endif %}">
+                        {{ patient.heart_rate|int }} bpm
                     </p>
                 </div>
                 <div class="col-4">
                     <small class="text-muted">SpO₂</small>
-                    <p class="mb-0 {% if patient.latest_vitals.spo2 and patient.latest_vitals.spo2 < 95 %}vital-warning{% else %}vital-normal{% endif %}">
-                        {% if patient.latest_vitals.spo2 %}{{ patient.latest_vitals.spo2|round(1) }}%{% else %}--{% endif %}
+                    <p class="mb-0 {% if patient.spo2_alert %}vital-warning{% else %}vital-normal{% endif %}">
+                        {{ patient.spo2|round(1) }}%
                     </p>
                 </div>
                 <div class="col-4">
                     <small class="text-muted">Temp</small>
-                    <p class="mb-0 {% if patient.latest_vitals.temp and (patient.latest_vitals.temp < 36.5 or patient.latest_vitals.temp > 37.5) %}vital-warning{% else %}vital-normal{% endif %}">
-                        {% if patient.latest_vitals.temp %}{{ patient.latest_vitals.temp|round(1) }}°C{% else %}--{% endif %}
+                    <p class="mb-0 {% if patient.temp_alert %}vital-warning{% else %}vital-normal{% endif %}">
+                        {{ patient.temp|round(1) }}°C
                     </p>
                 </div>
             </div>
             
-            {% if patient.current_risk %}
-                <div class="alert-banner mt-3">
+            {% if patient.has_alert %}
+                <div class="alert alert-warning mt-3">
                     <strong>⚠️ Warning:</strong> Patient has vital signs outside normal ranges.
-                    <a href="/alerts" class="btn btn-sm btn-outline-dark mt-2">View Details</a>
                 </div>
             {% endif %}
         {% else %}
@@ -53,6 +52,6 @@
     </div>
     
     <div class="card-footer text-muted text-center">
-        Last updated: {{ patient.latest_vitals.timestamp|datetime if patient.latest_vitals else 'Never' }}
+        Last updated: {{ patient.vitals_updated|datetime if patient.vitals_updated else 'Never' }}
     </div>
 </div> 

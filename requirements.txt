@@ -1,4 +1,8 @@
 flask
 flask-login
 flask-sqlalchemy
-htmx 
+werkzeug
+htmx
+alembic
+sqlalchemy
+pytest 
