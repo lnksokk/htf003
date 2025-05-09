@@ -42,19 +42,25 @@ def index():
     """Redirect to patients list."""
     return redirect(url_for('patients'))
 
-@app.route('/patients')
-@login_required
-def patients():
-    """Display all patients with their vital signs."""
+def generate_fresh_vitals(force_update=False):
+    """Generate fresh vitals for all patients if needed.
+    
+    Returns:
+        tuple: (all_patients, current_time, vitals_updated)
+        where vitals_updated indicates whether new vitals were generated
+    """
     all_patients = Patient.query.all()
     current_time = datetime.now()
+    vitals_updated = False
     
-    # Generate new vitals if requested explicitly, or during HTMX refresh, 
-    # or if it's been more than 10 seconds since the last update
-    should_update = request.args.get('generate') == 'true' or \
-                   (request.headers.get('HX-Request') and 
-                    any(not p.vitals_updated or (current_time - p.vitals_updated) > timedelta(seconds=10) 
-                        for p in all_patients))
+    # Determine if we need to update vitals
+    # Either forced (via generate=true parameter), 
+    # or it's been at least 10 seconds since last update for any patient
+    time_threshold_passed = any(not p.vitals_updated or 
+                               (current_time - p.vitals_updated) > timedelta(seconds=10) 
+                               for p in all_patients)
+    
+    should_update = force_update or time_threshold_passed
     
     if should_update:
         for patient in all_patients:
@@ -62,6 +68,17 @@ def patients():
             patient.current_risk = has_alerts
             db.session.add(patient)
         db.session.commit()
+        vitals_updated = True
+    
+    return all_patients, current_time, vitals_updated
+
+@app.route('/patients')
+@login_required
+def patients():
+    """Display all patients with their vital signs."""
+    # Generate new vitals if needed or requested
+    should_update = request.args.get('generate') == 'true'
+    all_patients, current_time, _ = generate_fresh_vitals(force_update=should_update)
     
     # Check if this is an HTMX request
     if request.headers.get('HX-Request'):
@@ -232,6 +249,11 @@ def logout():
 @login_required
 def alerts_queue():
     """Display a queue of all unacknowledged alerts."""
+    # Generate new vitals if needed to ensure we have the latest alerts
+    # Only force update if "generate=true" parameter is present
+    force_update = request.args.get('generate') == 'true'
+    _, current_time, vitals_updated = generate_fresh_vitals(force_update=force_update)
+    
     # Get all unacknowledged alerts, ordered by timestamp (newest first)
     alerts = Alert.query.filter_by(acknowledged=False).order_by(Alert.timestamp.desc()).all()
     
@@ -241,8 +263,9 @@ def alerts_queue():
         if alert.patient_id not in patients_dict:
             patients_dict[alert.patient_id] = Patient.query.get(alert.patient_id)
     
-    # Include current time for displaying "last updated"
-    current_time = datetime.now()
+    # Check if this is a request for just the fragment
+    if request.args.get('fragment') == 'true':
+        return render_template('_alerts_table.html', alerts=alerts, patients=patients_dict, now=current_time)
     
     return render_template('alerts.html', alerts=alerts, patients=patients_dict, now=current_time)
 

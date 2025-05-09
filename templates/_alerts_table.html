@@ -1,0 +1,57 @@
+<div class="card mb-4">
+    {% if alerts %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="alerts-table">
+                <thead>
+                    <tr>
+                        <th>Patient</th>
+                        <th>Room</th>
+                        <th>Vital Sign</th>
+                        <th>Value</th>
+                        <th>Threshold</th>
+                        <th>Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for alert in alerts %}
+                    <tr>
+                        <td>{{ patients[alert.patient_id].name }}</td>
+                        <td>{{ patients[alert.patient_id].room }}</td>
+                        <td>
+                            {% if alert.vital_type == 'heart_rate' %}
+                                Heart Rate
+                            {% elif alert.vital_type == 'spo2' %}
+                                SpO₂
+                            {% elif alert.vital_type == 'temp' %}
+                                Temperature
+                            {% endif %}
+                        </td>
+                        <td class="vital-warning">
+                            {% if alert.vital_type == 'heart_rate' %}
+                                {{ alert.value|int }} bpm
+                            {% elif alert.vital_type == 'spo2' %}
+                                {{ alert.value|round(1) }}%
+                            {% elif alert.vital_type == 'temp' %}
+                                {{ alert.value|round(1) }}°C
+                            {% endif %}
+                        </td>
+                        <td>{{ alert.threshold }}</td>
+                        <td>{{ alert.timestamp|datetime }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('acknowledge_from_queue', alert_id=alert.id) }}">
+                                <button type="submit" class="btn btn-sm btn-primary">Acknowledge</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="card-body text-center py-5">
+            <h4 class="text-muted">No unacknowledged alerts</h4>
+            <p class="text-muted">All alerts have been acknowledged.</p>
+        </div>
+    {% endif %}
+</div> 
