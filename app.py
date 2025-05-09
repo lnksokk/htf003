@@ -307,6 +307,48 @@ def acknowledge_from_queue(alert_id):
     
     return redirect(url_for('alerts_queue'))
 
+@app.route('/acknowledge_all', methods=['POST'])
+@login_required
+def acknowledge_all_alerts():
+    """Acknowledge all unacknowledged alerts at once."""
+    # Get all unacknowledged alerts
+    unacknowledged_alerts = Alert.query.filter_by(acknowledged=False).all()
+    
+    if not unacknowledged_alerts:
+        flash('No alerts to acknowledge', 'info')
+        return redirect(url_for('alerts_queue'))
+    
+    # Track which patients and vital types we've processed
+    processed = {}  # Format: {patient_id: set(vital_types)}
+    count = 0
+    
+    # Mark all alerts as acknowledged
+    for alert in unacknowledged_alerts:
+        alert.acknowledged = True
+        count += 1
+        
+        # Track which patient/vital type combinations we've seen
+        if alert.patient_id not in processed:
+            processed[alert.patient_id] = set()
+        processed[alert.patient_id].add(alert.vital_type)
+    
+    # Reset alert flags on patients
+    for patient_id, vital_types in processed.items():
+        patient = db.session.get(Patient, patient_id)
+        if patient:
+            for vital_type in vital_types:
+                if vital_type == 'heart_rate':
+                    patient.heart_rate_alert = False
+                elif vital_type == 'spo2':
+                    patient.spo2_alert = False
+                elif vital_type == 'temp':
+                    patient.temp_alert = False
+    
+    db.session.commit()
+    flash(f'All {count} alerts acknowledged', 'success')
+    
+    return redirect(url_for('alerts_queue'))
+
 def create_sample_data():
     """Create sample patients and users."""
     # Create attender user if it doesn't exist
