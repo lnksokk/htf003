@@ -192,8 +192,8 @@ def test_multiple_abnormal_vitals(client):
 def test_login_success(client):
     """Test successful login."""
     response = client.post('/login', data={
-        'username': 'doctor',
-        'password': 'doctorpassword'
+        'username': 'attender',
+        'password': 'attenderpassword'
     }, follow_redirects=True)
     
     assert response.status_code == 200
@@ -202,7 +202,7 @@ def test_login_success(client):
 def test_login_failure(client):
     """Test failed login with wrong password."""
     response = client.post('/login', data={
-        'username': 'doctor',
+        'username': 'attender',
         'password': 'wrongpassword'
     }, follow_redirects=True)
     
@@ -212,7 +212,7 @@ def test_login_failure(client):
 def test_patients_listing(client):
     """Test patients listing page."""
     # Login first
-    client.post('/login', data={'username': 'doctor', 'password': 'doctorpassword'})
+    client.post('/login', data={'username': 'attender', 'password': 'attenderpassword'})
     
     # Access the patients page
     response = client.get('/patients')
@@ -227,7 +227,7 @@ def test_patients_listing(client):
 def test_alert_highlighting(client):
     """Test alert highlighting and acknowledgment."""
     # Login
-    client.post('/login', data={'username': 'doctor', 'password': 'doctorpassword'})
+    client.post('/login', data={'username': 'attender', 'password': 'attenderpassword'})
     
     # Create a patient with an alert
     with app.app_context():

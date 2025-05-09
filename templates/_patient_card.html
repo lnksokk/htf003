@@ -1,4 +1,7 @@
-<div class="card patient-card {% if patient.has_alert %}at-risk{% endif %}" id="patient-{{ patient.id }}">
+<div class="card patient-card {% if patient.has_alert %}at-risk{% endif %}" id="patient-{{ patient.id }}"
+     hx-get="/status/{{ patient.id }}"
+     hx-trigger="every 15s"
+     hx-swap="outerHTML">
     
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">{{ patient.name }}</h5>

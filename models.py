@@ -8,7 +8,7 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), nullable=False)  # 'doctor' or 'nurse'
+    role = db.Column(db.String(20), nullable=False)  # 'attender'
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
@@ -61,6 +61,7 @@ class Alert(db.Model):
     vital_type = db.Column(db.String(20), nullable=False)  # heart_rate, spo2, temp
     value = db.Column(db.Float, nullable=False)
     threshold = db.Column(db.String(20), nullable=False)  # e.g., "60-100", ">= 95", "36.5-37.5"
+    acknowledged = db.Column(db.Boolean, default=False)
     
     def __repr__(self):
         return f'<Alert {self.vital_type}={self.value} for Patient {self.patient_id}>' 

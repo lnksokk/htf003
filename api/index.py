@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import os
@@ -42,11 +42,17 @@ THRESHOLDS = {
     }
 }
 
+@app.route('/')
+def index():
+    """Redirect to patients page for consistency with main app."""
+    return redirect(url_for('dashboard'))
+
 @app.route('/status')
 def dashboard():
     """Display the main dashboard with all patients."""
     patients = Patient.query.all()
-    return render_template('dashboard.html', patients=patients)
+    now = datetime.now()
+    return render_template('dashboard.html', patients=patients, now=now)
 
 @app.route('/status/<int:patient_id>')
 def patient_status(patient_id):
@@ -106,7 +112,8 @@ def update_vitals():
                 value=heart_rate,
                 threshold=threshold_str,
                 severity=severity,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
+                acknowledged=False
             ))
     
     # Check SpO2
@@ -134,7 +141,8 @@ def update_vitals():
                 value=spo2,
                 threshold=threshold_str,
                 severity=severity,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
+                acknowledged=False
             ))
     
     # Check temperature
@@ -162,7 +170,8 @@ def update_vitals():
                 value=temp,
                 threshold=threshold_str,
                 severity=severity,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
+                acknowledged=False
             ))
     
     # Update patient risk status
@@ -186,10 +195,56 @@ def update_vitals():
     # Return the updated patient card HTML fragment
     return render_template('_patient_card.html', patient=patient, vitals=vital)
 
-@app.route('/')
-def index():
-    """Redirect to dashboard."""
-    return render_template('dashboard.html', patients=Patient.query.all())
+@app.route('/alerts')
+def alerts_queue():
+    """Display a queue of all unacknowledged alerts."""
+    # Get all unacknowledged alerts, ordered by timestamp (newest first)
+    alerts = Alert.query.filter_by(acknowledged=False).order_by(Alert.timestamp.desc()).all()
+    
+    # Get patient information for each alert
+    patients_dict = {}
+    for alert in alerts:
+        if alert.patient_id not in patients_dict:
+            patients_dict[alert.patient_id] = Patient.query.get(alert.patient_id)
+    
+    now = datetime.now()
+    return render_template('alerts.html', alerts=alerts, patients=patients_dict, now=now)
+
+@app.route('/acknowledge_from_queue/<int:alert_id>', methods=['POST'])
+def acknowledge_from_queue(alert_id):
+    """Acknowledge an alert from the alerts queue."""
+    alert = db.session.get(Alert, alert_id)
+    if not alert:
+        return jsonify({"success": False, "message": "Alert not found"})
+    
+    # Get patient and vital type information
+    patient_id = alert.patient_id
+    vital_type = alert.vital_type
+    
+    # Mark all unacknowledged alerts of the same type for this patient as acknowledged
+    related_alerts = Alert.query.filter_by(
+        patient_id=patient_id,
+        vital_type=vital_type,
+        acknowledged=False
+    ).all()
+    
+    for related_alert in related_alerts:
+        related_alert.acknowledged = True
+    
+    # Also clear the corresponding alert flag on the patient
+    patient = db.session.get(Patient, patient_id)
+    if patient:
+        if vital_type == 'heart_rate':
+            patient.heart_rate_alert = False
+        elif vital_type == 'spo2':
+            patient.spo2_alert = False
+        elif vital_type == 'temp':
+            patient.temp_alert = False
+    
+    db.session.commit()
+    
+    # Return success response
+    return jsonify({"success": True, "message": f"All alerts for {patient.name} ({vital_type}) acknowledged"})
 
 # Initialize the database when in development mode
 if __name__ == '__main__':

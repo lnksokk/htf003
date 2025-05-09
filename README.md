@@ -6,9 +6,9 @@ A simple web-based monitoring system for patient vital signs that alerts healthc
 
 - **Basic Patient Monitoring**: Display patients with their latest vital signs
 - **Real-time Updates**: Automatically refreshes vital signs data
-- **Login System**: Authentication for doctors and nurses
+- **Login System**: Authentication for attenders
 - **Tiered Alert System**: Tracks abnormal vital signs with warning and critical levels
-- **Email Notifications**: Sends emails for critical alerts to doctors and patients
+- **Email Notifications**: Sends emails for critical alerts to attenders and patients
 - **Alert Management**: Allows acknowledgment and tracking of notifications
 
 ## Quick Start
@@ -34,8 +34,7 @@ A simple web-based monitoring system for patient vital signs that alerts healthc
    ```
 
 5. Login with:
-   - Username: `doctor` / Password: `doctorpassword`
-   - Username: `nurse` / Password: `nursepassword`
+   - Username: `attender` / Password: `attenderpassword`
 
 ## Vital Sign Thresholds
 
@@ -52,7 +51,7 @@ A simple web-based monitoring system for patient vital signs that alerts healthc
 ## Email Notifications
 
 The system sends email notifications for critical alerts to:
-- The patient's primary doctor (if assigned)
+- The assigned attender
 - The patient (for critical alerts only, if email is provided)
 
 To configure email sending:

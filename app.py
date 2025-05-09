@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import os
 import random
 from db import db
-from models import User, Patient
+from models import User, Patient, Alert
 from werkzeug.security import generate_password_hash
 
 app = Flask(__name__)
@@ -49,17 +49,18 @@ def patients():
     all_patients = Patient.query.all()
     current_time = datetime.now()
     
-    # Only generate new vitals if it's been more than 10 seconds since the last update
-    # or if there's an explicit request parameter to generate new vitals
-    should_update = request.args.get('generate') == 'true'
+    # Generate new vitals if requested explicitly, or during HTMX refresh, 
+    # or if it's been more than 10 seconds since the last update
+    should_update = request.args.get('generate') == 'true' or \
+                   (request.headers.get('HX-Request') and 
+                    any(not p.vitals_updated or (current_time - p.vitals_updated) > timedelta(seconds=10) 
+                        for p in all_patients))
     
-    for patient in all_patients:
-        if not patient.vitals_updated or should_update or \
-           (current_time - patient.vitals_updated) > timedelta(seconds=10):
-            generate_vitals_for_patient(patient, current_time)
+    if should_update:
+        for patient in all_patients:
+            has_alerts = generate_vitals_for_patient(patient, current_time)
+            patient.current_risk = has_alerts
             db.session.add(patient)
-    
-    if should_update or any(not p.vitals_updated for p in all_patients):
         db.session.commit()
     
     # Check if this is an HTMX request
@@ -72,6 +73,9 @@ def patients():
 
 def generate_vitals_for_patient(patient, timestamp):
     """Generate vital signs for a patient."""
+    # Track if any vital sign alerts need to be created
+    new_alerts = []
+    
     # 30% chance of abnormal vitals
     if random.random() < 0.3:
         # Choose which vital to make abnormal
@@ -79,28 +83,71 @@ def generate_vitals_for_patient(patient, timestamp):
         
         if risk_type == 'heart_rate':
             # Either too high or too low heart rate
-            patient.heart_rate = random.choice([
+            heart_rate = random.choice([
                 random.randint(40, 59),  # Too low
                 random.randint(101, 140)  # Too high
             ])
+            patient.heart_rate = heart_rate
             patient.heart_rate_alert = True
+            
+            # Determine threshold violation and create an alert
+            if heart_rate < 60:
+                threshold_str = f">= 60"
+            else:
+                threshold_str = f"<= 100"
+            
+            new_alerts.append(Alert(
+                patient_id=patient.id,
+                vital_type='heart_rate',
+                value=heart_rate,
+                threshold=threshold_str,
+                timestamp=timestamp,
+                acknowledged=False
+            ))
         else:
             patient.heart_rate = random.randint(60, 100)
             patient.heart_rate_alert = False
             
         if risk_type == 'spo2':
-            patient.spo2 = round(random.uniform(85, 94), 1)
+            spo2 = round(random.uniform(85, 94), 1)
+            patient.spo2 = spo2
             patient.spo2_alert = True
+            
+            # Create an alert for low SpO2
+            new_alerts.append(Alert(
+                patient_id=patient.id,
+                vital_type='spo2',
+                value=spo2,
+                threshold=f">= 95",
+                timestamp=timestamp,
+                acknowledged=False
+            ))
         else:
             patient.spo2 = round(random.uniform(95, 100), 1)
             patient.spo2_alert = False
             
         if risk_type == 'temp':
-            patient.temp = round(random.choice([
-                random.uniform(35, 36.4),  # Too low
-                random.uniform(37.6, 39)   # Too high
-            ]), 1)
+            # Either too high or too low temperature
+            temp_choice = random.choice([0, 1])
+            if temp_choice == 0:
+                temp = round(random.uniform(35, 36.4), 1)  # Too low
+                threshold_str = f">= 36.5"
+            else:
+                temp = round(random.uniform(37.6, 39), 1)  # Too high
+                threshold_str = f"<= 37.5"
+                
+            patient.temp = temp
             patient.temp_alert = True
+            
+            # Create an alert for abnormal temperature
+            new_alerts.append(Alert(
+                patient_id=patient.id,
+                vital_type='temp',
+                value=temp,
+                threshold=threshold_str,
+                timestamp=timestamp,
+                acknowledged=False
+            ))
         else:
             patient.temp = round(random.uniform(36.5, 37.5), 1)
             patient.temp_alert = False
@@ -113,8 +160,15 @@ def generate_vitals_for_patient(patient, timestamp):
         patient.heart_rate_alert = False
         patient.spo2_alert = False
         patient.temp_alert = False
-        
+    
     patient.vitals_updated = timestamp
+    
+    # Add all new alerts to the session
+    for alert in new_alerts:
+        db.session.add(alert)
+    
+    # Return whether the patient has any alerts
+    return len(new_alerts) > 0
 
 @app.route('/acknowledge/<int:patient_id>/<string:vital_type>', methods=['POST'])
 @login_required
@@ -131,6 +185,16 @@ def acknowledge_alert(patient_id, vital_type):
         patient.spo2_alert = False
     elif vital_type == 'temp':
         patient.temp_alert = False
+    
+    # Also mark any corresponding alerts in the Alert table as acknowledged
+    alerts = Alert.query.filter_by(
+        patient_id=patient_id, 
+        vital_type=vital_type,
+        acknowledged=False
+    ).all()
+    
+    for alert in alerts:
+        alert.acknowledged = True
     
     db.session.commit()
     
@@ -164,24 +228,72 @@ def logout():
     flash('You have been logged out', 'success')
     return redirect(url_for('login'))
 
+@app.route('/alerts')
+@login_required
+def alerts_queue():
+    """Display a queue of all unacknowledged alerts."""
+    # Get all unacknowledged alerts, ordered by timestamp (newest first)
+    alerts = Alert.query.filter_by(acknowledged=False).order_by(Alert.timestamp.desc()).all()
+    
+    # Get patient information for each alert
+    patients_dict = {}
+    for alert in alerts:
+        if alert.patient_id not in patients_dict:
+            patients_dict[alert.patient_id] = Patient.query.get(alert.patient_id)
+    
+    # Include current time for displaying "last updated"
+    current_time = datetime.now()
+    
+    return render_template('alerts.html', alerts=alerts, patients=patients_dict, now=current_time)
+
+@app.route('/acknowledge_from_queue/<int:alert_id>', methods=['POST'])
+@login_required
+def acknowledge_from_queue(alert_id):
+    """Acknowledge an alert from the alerts queue."""
+    alert = db.session.get(Alert, alert_id)
+    if not alert:
+        flash('Alert not found', 'danger')
+        return redirect(url_for('alerts_queue'))
+    
+    # Get patient and vital type information
+    patient_id = alert.patient_id
+    vital_type = alert.vital_type
+    
+    # Mark all unacknowledged alerts of the same type for this patient as acknowledged
+    related_alerts = Alert.query.filter_by(
+        patient_id=patient_id,
+        vital_type=vital_type,
+        acknowledged=False
+    ).all()
+    
+    for related_alert in related_alerts:
+        related_alert.acknowledged = True
+    
+    # Also clear the corresponding alert flag on the patient
+    patient = db.session.get(Patient, patient_id)
+    if patient:
+        if vital_type == 'heart_rate':
+            patient.heart_rate_alert = False
+        elif vital_type == 'spo2':
+            patient.spo2_alert = False
+        elif vital_type == 'temp':
+            patient.temp_alert = False
+    
+    db.session.commit()
+    flash(f'Alert for {patient.name} ({vital_type}) acknowledged', 'success')
+    
+    return redirect(url_for('alerts_queue'))
+
 def create_sample_data():
     """Create sample patients and users."""
-    # Create users if they don't exist
-    if not db.session.query(User).filter_by(username='doctor').first():
-        doctor = User(
-            username='doctor',
-            password_hash=generate_password_hash('doctorpassword'),
-            role='doctor'
+    # Create attender user if it doesn't exist
+    if not db.session.query(User).filter_by(username='attender').first():
+        attender = User(
+            username='attender',
+            password_hash=generate_password_hash('attenderpassword'),
+            role='attender'
         )
-        db.session.add(doctor)
-    
-    if not db.session.query(User).filter_by(username='nurse').first():
-        nurse = User(
-            username='nurse',
-            password_hash=generate_password_hash('nursepassword'),
-            role='nurse'
-        )
-        db.session.add(nurse)
+        db.session.add(attender)
     
     # Create patients if they don't exist
     if db.session.query(Patient).count() == 0:
